@@ -1,6 +1,6 @@
 global my_codedir "/home/mlee/Documents/projects/Birkenbach/MAM_code_folder/MAM"
 global my_workdir "/home/mlee/Documents/projects/Birkenbach/data_folder"
-pause on
+pause off
 global version_string 2017_11_02
 
 #delimit cr
@@ -186,23 +186,55 @@ gen differential= (date_of_trade>=mdy(11,22,2006))
 /* linear */
 local pre_conditional price>=5 & price<=2000   & fishing_year<=2009
 local post_conditional  price>=5 & price<=2000   & fishing_year>2009
-local rhs_vars elapsed ibn.fishing_year lens lend hps hpd i.emergency i.differential i.cph_buyer i.cph_seller
+local rhs_vars elapsed ib(freq).fishing_year lens lend hps hpd i.emergency i.differential i.cph_buyer i.cph_seller
 
 regress price `rhs_vars'  if `pre_conditional', robust
-est store pre_linear
+est store pre_linear_full
+estat ic
+test (2005.fishing_year) (2006.fishing_year)  (2007.fishing_year)   
+test (2005.fishing_year) (2006.fishing_year)  (2007.fishing_year)  (hpd)
+/*These tests support a short model*/
 
+/* estimate a short linear model */
+regress price elapsed i(2004).fishing_year lens lend hps i.emergency i.cph_buyer i.cph_seller if `pre_conditional', robust
+est store pre_linear_parsim
+
+
+
+/* post linear model */
 regress price `rhs_vars' if `post_conditional', robust
 est store post_linear
+estat ic
+test (2011.fishing_year) (2012.fishing_year)  (2013.fishing_year)  (2014.fishing_year)  (2015.fishing_year)  (2016.fishing_year) (2017.fishing_year)
+test (lens) (hpd) (hps) 
+test (lens) (hpd) 
+test (2011.fishing_year) (2012.fishing_year)  (2013.fishing_year)  (2014.fishing_year)  (2015.fishing_year)  (2016.fishing_year)  (2017.fishing_year) (lens) (hpd) 
+regress price elapsed i(2010).fishing_year lend hps i.cph_seller if `post_conditional', robust
+est store post_linear_parsim
 
 
 /* log-linear using a glm instead of log transforming lhs*/
 glm price `rhs_vars' if `pre_conditional', link(log) family(poisson) robust
 est store pre_semilog
+test (2005.fishing_year)  (2007.fishing_year)   (2008.fishing_year)  
+test (2005.fishing_year)  (2007.fishing_year)   (2008.fishing_year)  (hpd)
+
+glm price elapsed i(2004 2006 2009).fishing_year lens lend hps i.emergency i.cph_buyer i.cph_seller if `pre_conditional', link(log) family(poisson) robust
+glm price elapsed i(2004 2006).fishing_year lens lend hps i.emergency i.cph_buyer i.cph_seller if `pre_conditional', link(log) family(poisson) robust
+est store pre_semilog_parsim
+
 
 glm price `rhs_vars' if `post_conditional', link(log) family(poisson) robust
 est store post_semilog
+test (2011.fishing_year) (2012.fishing_year)  (2013.fishing_year)  (2014.fishing_year)  (2015.fishing_year)  (2016.fishing_year) (2017.fishing_year)
+test (lens) (hpd) (elapsed)
+test (2011.fishing_year) (2012.fishing_year)  (2013.fishing_year)  (2014.fishing_year)  (2015.fishing_year)  (2016.fishing_year) (2017.fishing_year)  (lens) (hpd) (elapsed)
+
+glm price i(2010).fishing_year lend hps i.cph_buyer i.cph_seller if `post_conditional', link(log) family(poisson) robust
+est store post_semilog_parsim
 
 
+pause
 /* use the results of pre_linear to predict the smallest buy price and the largest sell price for each vessel on each day.*/
 
 
@@ -307,21 +339,23 @@ gen hpd=len_s-len_b
 gen cph_buyer=1
 gen cph_seller=cph
 
-est restore pre_linear
+
+/* actually do the predictions */
+est restore pre_linear_parsim
 predict linear_pre_price_sell, xb
 
 replace linear_pre_price_sell=. if fishing_year>=2010
 
-est restore pre_semilog
+est restore pre_semilog_parsim
 predict semilog_pre_price_sell, mu
 replace semilog_pre_price_sell=. if fishing_year>=2010
 
 
-est restore post_linear
+est restore post_linear_parsim
 predict linear_post_price_sell, xb
 replace linear_post_price_sell=. if fishing_year<2010
 
-est restore post_semilog
+est restore post_semilog_parsim
 predict semilog_post_price_sell, mu
 replace semilog_post_price_sell=. if fishing_year<2010
 
@@ -359,21 +393,21 @@ gen hpd=len_s-len_b
 gen cph_buyer=1
 gen cph_seller=cph
 
-est restore pre_linear
+est restore pre_linear_parsim
 predict linear_pre_price_buy, xb
 
 replace linear_pre_price_buy=. if fishing_year>=2010
 
-est restore pre_semilog
+est restore pre_semilog_parsim
 predict semilog_pre_price_buy, mu
 replace semilog_pre_price_buy=. if fishing_year>=2010
 
 
-est restore post_linear
+est restore post_linear_parsim
 predict linear_post_price_buy, xb
 replace linear_post_price_buy=. if fishing_year<2010
 
-est restore post_semilog
+est restore post_semilog_parsim
 predict semilog_post_price_buy, mu
 replace semilog_post_price_buy=. if fishing_year<2010
 
