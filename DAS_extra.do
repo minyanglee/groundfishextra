@@ -9,12 +9,10 @@ global version_string 2017_11_02
 /**************data processing ****************/
 
 
-cd $my_workdir
-
 
 /*Running sums of usage */
 tempfile running_days
-use $my_workdir/das_usage_$version_string.dta, clear
+use "$my_workdir/das_usage_$version_string.dta", clear
 
 
 
@@ -39,7 +37,7 @@ keep fishing_year date running_DAS
 sort fishing_year date
 save `running_days'
 
-use $my_workdir/leases_$version_string.dta, clear
+use "$my_workdir/leases_$version_string.dta", clear
 
 /* three small data corrections on date */
 replace date_of_trade=mdy(11,19,2004) if transfer_id==815
@@ -60,7 +58,7 @@ tempfile seller buyer
 
 
 
-use mqrs_old_2018_09_26.dta, clear
+ use "$my_workdir/mqrs_old_2018_09_26.dta", clear
 replace date_cancelled=dofc(date_cancelled)
 replace date_eligible=dofc(date_eligible)
 format date_cancelled date_eligible %td
@@ -78,7 +76,7 @@ sort right_id
 save `seller'
 
 
-use mqrs_old_2018_09_26.dta, clear
+use "$my_workdir/mqrs_old_2018_09_26.dta", clear
 replace date_cancelled=dofc(date_cancelled)
 replace date_eligible=dofc(date_eligible)
 format date_cancelled date_eligible %td
@@ -129,7 +127,7 @@ preserve
 These are not baselines
  */
 tempfile perm_s perm_b
-use permit_portfolio_2017_01_18.dta, clear
+use "$my_workdir/permit_portfolio_2017_01_18.dta", clear
 keep permit len vhp fishing_year
 rename permit permit_seller
 rename len len_seller
@@ -188,6 +186,11 @@ local pre_conditional price>=5 & price<=2000   & fishing_year<=2009
 local post_conditional  price>=5 & price<=2000   & fishing_year>2009
 local rhs_vars elapsed ib(freq).fishing_year lens lend hps hpd i.emergency i.differential i.cph_buyer i.cph_seller
 
+foreach var of varlist price elapsed len_s len_b hp_s hp_b{
+	gen ln`var'=ln(`var')
+}
+
+
 regress price `rhs_vars'  if `pre_conditional', robust
 est store pre_linear_full
 estat ic
@@ -198,8 +201,6 @@ test (2005.fishing_year) (2006.fishing_year)  (2007.fishing_year)  (hpd)
 /* estimate a short linear model */
 regress price elapsed i(2004).fishing_year lens lend hps i.emergency i.cph_buyer i.cph_seller if `pre_conditional', robust
 est store pre_linear_parsim
-
-
 
 /* post linear model */
 regress price `rhs_vars' if `post_conditional', robust
@@ -234,7 +235,30 @@ glm price i(2010).fishing_year lend hps i.cph_buyer i.cph_seller if `post_condit
 est store post_semilog_parsim
 
 
+
+/* log-log */
+local lnrhs lnelapsed ib(freq).fishing_year lnlen_s lnlen_b lnhp_s lnhp_b i.emergency i.differential i.cph_buyer i.cph_seller
+
+
+regress lnprice `lnrhs' if `pre_conditional', robust
+test (2004.fishing_year)  (2005.fishing_year)   (2006.fishing_year)  (lnhp_s) (lnhp_b) (1.emergency)
+est store pre_loglog
+
+regress lnprice lnelapsed i(2007 2009).fishing_year lnlen_s lnlen_b  i.cph_buyer i.cph_seller if `pre_conditional', robust
+est store pre_loglog_parsim
+
+
+regress lnprice `lnrhs' if `post_conditional', robust
+est store post_loglog
+
+test (2011.fishing_year)  (2012.fishing_year)   (2013.fishing_year) (2014.fishing_year)  (2016.fishing_year) (2017.fishing_year) (lnhp_s) (lnhp_b)
+
+regress lnprice lnelapsed i( 2015 ).fishing_year lnlen_s lnlen_b i.cph_seller if `post_conditional', robust
+est store post_loglog_parsim
+
+
 pause
+
 /* use the results of pre_linear to predict the smallest buy price and the largest sell price for each vessel on each day.*/
 
 
@@ -244,7 +268,7 @@ pause
 /* step 1 - build a panel of permit's and fishing_years 
 from 2014 to 2018. There may be duplicate permit numbers due to the way CPH is done.
 */
-use mqrs_old_2018_09_26.dta, clear
+use "$my_workdir/mqrs_old_2018_09_26.dta", clear
 drop remark*
 gen cph=(strmatch(auth_type,"CPH") | strmatch(auth_type,"*HISTORY*"))
 
@@ -287,7 +311,7 @@ preserve
 These are not baselines
  */
 tempfile permits
-use permit_portfolio_2017_01_18.dta, clear
+use "$my_workdir/permit_portfolio_2017_01_18.dta", clear
 keep permit len vhp fishing_year
 save `permits'
 restore
@@ -338,7 +362,9 @@ gen hpd=len_s-len_b
 
 gen cph_buyer=1
 gen cph_seller=cph
-
+foreach var of varlist elapsed len_s len_b hp_s hp_b{
+	gen ln`var'=ln(`var')
+}
 
 /* actually do the predictions */
 est restore pre_linear_parsim
@@ -350,6 +376,13 @@ est restore pre_semilog_parsim
 predict semilog_pre_price_sell, mu
 replace semilog_pre_price_sell=. if fishing_year>=2010
 
+est restore pre_loglog_parsim
+predict loglog_pre_price_sell, xb
+replace loglog_pre_price_sell = exp(loglog_pre_price_sell)*exp(e(rmse)^2/2) 
+replace loglog_pre_price_sell=. if fishing_year>=2010
+
+
+
 
 est restore post_linear_parsim
 predict linear_post_price_sell, xb
@@ -358,6 +391,23 @@ replace linear_post_price_sell=. if fishing_year<2010
 est restore post_semilog_parsim
 predict semilog_post_price_sell, mu
 replace semilog_post_price_sell=. if fishing_year<2010
+
+
+est restore post_loglog_parsim
+predict loglog_post_price_sell, xb
+replace loglog_post_price_sell = exp(loglog_post_price_sell)*exp(e(rmse)^2/2) 
+replace loglog_post_price_sell=. if fishing_year<2010
+
+
+
+
+
+
+
+
+
+
+
 
 summ linear_post_price_sell semilog_post_price_sell linear_pre_price_sell semilog_pre_price_sell
 
@@ -393,6 +443,12 @@ gen hpd=len_s-len_b
 gen cph_buyer=1
 gen cph_seller=cph
 
+
+
+foreach var of varlist elapsed len_s len_b hp_s hp_b{
+	gen ln`var'=ln(`var')
+}
+
 est restore pre_linear_parsim
 predict linear_pre_price_buy, xb
 
@@ -403,6 +459,13 @@ predict semilog_pre_price_buy, mu
 replace semilog_pre_price_buy=. if fishing_year>=2010
 
 
+est restore pre_loglog_parsim
+predict loglog_pre_price_buy, xb
+replace loglog_pre_price_buy = exp(loglog_pre_price_buy)*exp(e(rmse)^2/2) 
+replace loglog_pre_price_buy=. if fishing_year>=2010
+
+
+
 est restore post_linear_parsim
 predict linear_post_price_buy, xb
 replace linear_post_price_buy=. if fishing_year<2010
@@ -411,18 +474,32 @@ est restore post_semilog_parsim
 predict semilog_post_price_buy, mu
 replace semilog_post_price_buy=. if fishing_year<2010
 
-summ linear_post_price_buy semilog_post_price_buy linear_pre_price_buy semilog_pre_price_buy
-save $my_workdir/predicted_buy_prices.dta, replace
+
+
+est restore post_loglog_parsim
+predict loglog_post_price_buy, xb
+replace loglog_post_price_buy = exp(loglog_post_price_buy)*exp(e(rmse)^2/2) 
+replace loglog_post_price_buy=. if fishing_year<2010
+
+
+
+
+
+summ *price*
+save "$my_workdir/predicted_buy_prices.dta", replace
 
 /* take a look at the sell prices compared to the buy prices */
-use  $my_workdir/predicted_sell_prices.dta, replace
-summ linear_post_price_sell semilog_post_price_sell linear_pre_price_sell semilog_pre_price_sell
+use "$my_workdir/predicted_sell_prices.dta", replace
+summ *price*
 
 
 /* NOTES
 1.  There's a pretty sharp divide in May 2010 when catch share starts. The value of DAS is now for use in the common pool and in monkfish.  
 	Sector vessels that aren't fishing for monk, don't need to buy DAS, but still have an allocation.
-2.
+
+
+
+  
 */
 
 
