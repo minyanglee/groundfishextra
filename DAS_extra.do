@@ -1,8 +1,8 @@
 global my_codedir "/home/mlee/Documents/projects/Birkenbach/MAM_code_folder/MAM"
 global my_workdir "/home/mlee/Documents/projects/Birkenbach/data_folder"
-pause off
+pause on
 global version_string 2017_11_02
-
+est drop _all
 #delimit cr
 
 
@@ -35,6 +35,15 @@ collapse (sum) charge, by(fishing_year date)
 bysort fishing_year (date): gen running_DAS_used=sum(charge)
 keep fishing_year date running_DAS
 sort fishing_year date
+rename date date_of_trade
+tsset date_of_trade
+tsfill, full
+gen fy_hand=year(date)
+gen month=month(date)
+replace fy_hand=fy_hand-1 if month<=4
+replace fishing_year=fy_hand if fishing_year==.
+drop month fy
+bysort fishing_year (date_of_trade): replace running=running[_n-1] if running==.
 save `running_days'
 
 use "$my_workdir/leases_$version_string.dta", clear
@@ -149,22 +158,83 @@ rename _merge  mpb
 foreach var of varlist len_seller hp_seller len_buyer hp_buyer{
 rename `var'  perm_`var'
 }
-order mps mpb, last
 
-gen len_s=mqrs_len_seller
+
+/* Add in length and hp from DAS.baselines
+These are  baselines
+ */
+ preserve
+global date_string "2018_10_03"
+
+use "$my_workdir/right_id_baselines_$date_string.dta", replace
+tempfile base_s base_b
+rename right_id right_id_seller
+rename hp hpb_s
+rename len lenb_s
+save `base_s'
+
+rename right_id right_id_buyer
+rename hp hpb_b
+rename len lenb_b
+
+save `base_b'
+restore
+
+joinby right_id_seller using `base_s', unmatched(master)
+assert _merge==3
+
+rename _merge m3
+gen marksellbase=0
+replace marksellbase=1 if date_of_trade>=start_date & (date_of_trade<=end_date | end_date==.)
+keep if marksellbase==1 
+drop start_date end_date
+
+
+
+
+joinby right_id_buyer using `base_b', unmatched(master)
+assert _merge==3
+rename _merge m4
+gen markbuybase=0
+replace markbuybase=1 if date_of_trade>=start_date & (date_of_trade<=end_date | end_date==.)
+keep if markbuybase==1 
+
+
+
+
+
+
+/* construct a length variable for buyers based on baseline. If that match fails, construct it from MQRS. If that fails, construct it from the permit data 
+repeat for sellers. repeat for horsepower */
+
+order mps mpb , last
+gen len_s=hpb_s
+
+replace len_s=mqrs_len_seller if len_s==.
 replace len_s=perm_len_seller if len_s==.
-gen len_b=mqrs_len_b
 
+
+gen len_b=hpb_b
+replace len_b=mqrs_len_b if len_b==.
 replace len_b=perm_len_b if len_b==.
+
+
+
 gen lens=len_s+len_b
 gen lend=len_s-len_b
 
 
-gen hp_s=mqrs_hp_seller
+
+gen hp_s=hpb_s
+replace hp_s=mqrs_hp_seller if hp_s==.
 replace hp_s=perm_hp_seller if hp_s==.
 
-gen hp_b=mqrs_hp_b
+gen hp_b=hpb_b
+replace hp_b=mqrs_hp_b if hp_b==.
 replace hp_b=perm_hp_b if hp_b==.
+
+
+
 gen  hps=hp_s+hp_b
 gen hpd=hp_s-hp_b
 
@@ -173,9 +243,27 @@ gen elapsed=date_of_trade-fys
 save $my_workdir/DAS_prices.dta, replace
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* code the emergency action and differential DAS based on trade date */
 gen emergency= (date_of_trade>=mdy(5,1,2006) & date_of_trade<=mdy(11,21,2006))
 gen differential= (date_of_trade>=mdy(11,22,2006))
+
+/* merge in running DAS used */
+merge m:1 date_of_trade using `running_days', keep(1 3)
+assert _merge==3
+drop _merge
 
 
 /**************try a few regressions ****************/
@@ -257,7 +345,27 @@ regress lnprice lnelapsed i( 2015 ).fishing_year lnlen_s lnlen_b i.cph_seller if
 est store post_loglog_parsim
 
 
-pause
+
+
+
+
+
+/*
+local rhs_vars elapsed ib(freq).fishing_year len_s* len_b* i.emergency i.differential i.cph_buyer i.cph_seller c.len_s#c.elapsed c.len_b#c.elapsed i.fishing_year#c.elapsed
+where the len*'s include up to third order polynomials.
+*/
+local rhs_vars elapsed ib(freq).fishing_year c.len_s##(c.len_s#c.len_s)  c.len_b##(c.len_b#c.len_b)  (c.len_s c.len_b)#c.elapsed  i.emergency i.differential i.cph_buyer i.cph_seller i.fishing_year#c.elapsed
+
+regress price `rhs_vars' if `pre_conditional', robust
+est store linear_ab_pre
+
+
+local rhs_vars elapsed ib(freq).fishing_year c.len_s##(c.len_s#c.len_s)  c.len_b##(c.len_b#c.len_b)  (c.len_s c.len_b)#c.elapsed  i.emergency i.differential i.cph_buyer i.cph_seller i.fishing_year#c.elapsed
+
+regress price `rhs_vars' if `post_conditional', robust
+est store linear_ab_post
+
+
 
 /* use the results of pre_linear to predict the smallest buy price and the largest sell price for each vessel on each day.*/
 
@@ -383,6 +491,12 @@ replace loglog_pre_price_sell=. if fishing_year>=2010
 
 
 
+est restore linear_ab_pre
+predict ab_pre_price_sell, xb
+replace ab_pre_price_sell=. if fishing_year>=2010
+
+
+
 
 est restore post_linear_parsim
 predict linear_post_price_sell, xb
@@ -403,13 +517,21 @@ replace loglog_post_price_sell=. if fishing_year<2010
 
 
 
+est restore linear_ab_post
+predict ab_post_price_sell, xb
+replace ab_post_price_sell=. if fishing_year<2010
 
 
 
 
 
 
-summ linear_post_price_sell semilog_post_price_sell linear_pre_price_sell semilog_pre_price_sell
+
+
+
+
+
+summ linear_post_price_sell semilog_post_price_sell linear_pre_price_sell semilog_pre_price_sell ab_*
 
 save $my_workdir/predicted_sell_prices.dta, replace
 
@@ -454,6 +576,13 @@ predict linear_pre_price_buy, xb
 
 replace linear_pre_price_buy=. if fishing_year>=2010
 
+
+est restore linear_ab_pre
+predict ab_pre_price_buy, xb
+replace ab_pre_price_buy=. if fishing_year>=2010
+
+
+
 est restore pre_semilog_parsim
 predict semilog_pre_price_buy, mu
 replace semilog_pre_price_buy=. if fishing_year>=2010
@@ -480,6 +609,14 @@ est restore post_loglog_parsim
 predict loglog_post_price_buy, xb
 replace loglog_post_price_buy = exp(loglog_post_price_buy)*exp(e(rmse)^2/2) 
 replace loglog_post_price_buy=. if fishing_year<2010
+
+
+
+est restore linear_ab_post
+predict ab_post_price_buy, xb
+replace ab_post_price_buy=. if fishing_year<2010
+
+
 
 
 
