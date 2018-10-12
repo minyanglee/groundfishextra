@@ -46,6 +46,8 @@ drop month fy
 bysort fishing_year (date_of_trade): replace running=running[_n-1] if running==.
 save `running_days'
 
+
+
 use "$my_workdir/leases_$version_string.dta", clear
 
 /* three small data corrections on date */
@@ -220,8 +222,8 @@ replace len_b=perm_len_b if len_b==.
 
 
 
-gen lens=len_s+len_b
-gen lend=len_s-len_b
+gen lensum=len_s+len_b
+gen lendiff=len_s-len_b
 
 
 
@@ -235,11 +237,16 @@ replace hp_b=perm_hp_b if hp_b==.
 
 
 
-gen  hps=hp_s+hp_b
-gen hpd=hp_s-hp_b
+gen  hpsum=hp_s+hp_b
+gen hpdiff=hp_s-hp_b
 
 gen fystart=mdy(5,1,fishing_year)
 gen elapsed=date_of_trade-fys
+
+
+
+drop mqrs_len_seller mqrs_hp_seller mqrs_len_buyer mqrs_hp_buyer remark1 remark2 perm_len_seller perm_hp_seller perm_len_buyer perm_hp_buyer m3 hpb_s lenb_s marksellbase m4 hpb_b lenb_b fystart end_date start_date markbuybase mps mpb
+
 save $my_workdir/DAS_prices.dta, replace
 
 
@@ -364,6 +371,29 @@ local rhs_vars elapsed ib(freq).fishing_year c.len_s##(c.len_s#c.len_s)  c.len_b
 
 regress price `rhs_vars' if `post_conditional', robust
 est store linear_ab_post
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
