@@ -97,16 +97,16 @@ gen lens=len_s+len_b
 gen lend=len_s-len_b
 */
 preserve
-gen len_b=length*1.10
-gen len_s=length
-gen hp_b=hp*1.20
-gen hp_s=hp
+gen len_buyer=length*1.10
+gen len_seller=length
+gen hp_buyer=hp*1.20
+gen hp_seller=hp
 
-gen lens=len_s+len_b
-gen lend=len_s-len_b
+gen lensum=len_s+len_b
+gen lendiff=len_s-len_b
 
-gen hps=len_s+len_b
-gen hpd=len_s-len_b
+gen hpsum=len_s+len_b
+gen hpdiff=len_s-len_b
 
 gen cph_buyer=1
 gen cph_seller=cph
@@ -114,12 +114,12 @@ foreach var of varlist elapsed len_s len_b hp_s hp_b{
 	gen ln`var'=ln(`var')
 }
 
-/* actually do the predictions */
+/* actually do the predictions 
 est restore pre_linear_parsim
 predict linear_pre_price_sell, xb
 
 replace linear_pre_price_sell=. if fishing_year>=2010
-
+*/
 est restore pre_semilog_parsim
 predict semilog_pre_price_sell, mu
 replace semilog_pre_price_sell=. if fishing_year>=2010
@@ -171,7 +171,8 @@ replace ab_post_price_sell=. if fishing_year<2010
 
 
 
-summ linear_post_price_sell semilog_post_price_sell linear_pre_price_sell semilog_pre_price_sell ab_*
+summ *pre*
+summ *post*
 
 save $my_workdir/predicted_sell_prices.dta, replace
 
@@ -189,18 +190,18 @@ gen lend=len_s-len_b
 
 
 */
-gen len_s=length/1.10
-gen len_b=length
-gen hp_s=hp/1.20
-gen hp_b=hp
+gen len_seller=length/1.10
+gen len_buyer=length
+gen hp_seller=hp/1.20
+gen hp_buyer=hp
 
 
 
-gen lens=len_s+len_b
-gen lend=len_s-len_b
+gen lensum=len_s+len_b
+gen lendiff=len_s-len_b
 
-gen hps=len_s+len_b
-gen hpd=len_s-len_b
+gen hpsum=len_s+len_b
+gen hpdiff=len_s-len_b
 
 gen cph_buyer=1
 gen cph_seller=cph
@@ -210,12 +211,12 @@ gen cph_seller=cph
 foreach var of varlist elapsed len_s len_b hp_s hp_b{
 	gen ln`var'=ln(`var')
 }
-
+/*
 est restore pre_linear_parsim
 predict linear_pre_price_buy, xb
 
 replace linear_pre_price_buy=. if fishing_year>=2010
-
+*/
 
 est restore linear_ab_pre
 predict ab_pre_price_buy, xb
