@@ -239,7 +239,14 @@ replace hp_buyer=mqrs_hp_b if hp_b==.
 replace hp_buyer=perm_hp_b if hp_b==.
 
 
+pause
+/* these all appear to be trades that were approved in APril, 2005 for the subsequent fishing year. I've moved them to have a trade date of May 1*/
+replace date_of_trade=mdy(5,1,2005) if inlist(transfer_id,2130,2299,2128)
+
 gen fystart=mdy(5,1,fishing_year)
+
+
+
 gen elapsed=date_of_trade-fys
 
 
