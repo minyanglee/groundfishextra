@@ -8,6 +8,9 @@ global my_codedir "/home/mlee/Documents/projects/Birkenbach/MAM_code_folder/MAM"
 global my_workdir "/home/mlee/Documents/projects/Birkenbach/data_folder"
 pause off
 global version_string 2017_11_02
+local date: display %td_CCYY_NN_DD date(c(current_date), "DMY")
+global today_date_string = subinstr(trim("`date'"), " " , "_", .)
+
 est drop _all
 #delimit cr
 
@@ -253,7 +256,7 @@ gen elapsed=date_of_trade-fys
 
 drop mqrs_len_seller mqrs_hp_seller mqrs_len_buyer mqrs_hp_buyer remark1 remark2 perm_len_seller perm_hp_seller perm_len_buyer perm_hp_buyer m3 hpb_s lenb_s marksellbase m4 hpb_b lenb_b fystart end_date start_date markbuybase mps mpb
 
-save $my_workdir/DAS_prices.dta, replace
+save $my_workdir/DAS_prices_$today_date_string.dta, replace
 
 
 
@@ -292,7 +295,7 @@ merge m:1 date_of_trade using `running_days', keep(1 3)
 assert _merge==3
 drop _merge
 
-save $my_workdir/DAS_prices.dta, replace
+save $my_workdir/DAS_prices_$today_date_string.dta, replace
 
 
 

@@ -264,10 +264,10 @@ replace ab_post_price_buy=. if fishing_year<2010
 
 
 summ *price*
-save "$my_workdir/predicted_buy_prices.dta", replace
+save "$my_workdir/predicted_buy_prices_$today_date_string.dta", replace
 
 /* take a look at the sell prices compared to the buy prices */
-use "$my_workdir/predicted_sell_prices.dta", replace
+use "$my_workdir/predicted_sell_prices_$today_date_string.dta", replace
 summ *price*
 
 

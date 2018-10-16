@@ -1,5 +1,7 @@
+local date: display %td_CCYY_NN_DD date(c(current_date), "DMY")
+global today_date_string = subinstr(trim("`date'"), " " , "_", .)
 
-use $my_workdir/DAS_prices.dta, replace
+use $my_workdir/DAS_prices_$today_date_string.dta, replace
 
 /*scale daysleft by 1000 and construct a sum and difference variable*/
 replace buyer_cp_days_left=buyer_cp_days_left/1000
