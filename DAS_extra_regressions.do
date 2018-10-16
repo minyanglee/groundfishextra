@@ -15,25 +15,36 @@ gen hpdiff=hp_s-hp_b
 gen lensum=len_s+len_b
 gen lendiff=len_s-len_b
 
+/* Couldn't sell out of CPH prior to at least 2010. So, cph_seller doesn't belong in the pre regressions. cph_buyer doesn't either, becaue that doesn't make much sense. */
+
+/* some exploratory */
+/* Do a simple CORR */
+local pre_conditional price>=5 & price<=2000   & fishing_year<=2009
+local post_conditional  price>=5 & price<=2000   & fishing_year>2009
+
+
+corr fishing_year cpsum cpdiff lens lend hps hpd emergency differential elapsed if `pre_conditional'
+corr fishing_year cpsum cpdiff lens lend hps hpd emergency differential cph_buyer cph_seller elapsed if `post_conditional'
+
+graph matrix cpsum cpdiff lens lend hps hpd cph_buyer cph_seller elapsed if `pre_conditional', half
+
+
 
 /**************try a few regressions ****************/
 
 /*  */
 /* linear */
-local pre_conditional price>=5 & price<=2000   & fishing_year<=2009
-local post_conditional  price>=5 & price<=2000   & fishing_year>2009
 local rhs_vars elapsed ib(freq).fishing_year lens lend hps hpd i.emergency i.differential i.cph_buyer i.cph_seller
 
 foreach var of varlist price elapsed len_s len_b hp_s hp_b buyer_cp seller_cp{
 	gen ln`var'=ln(`var')
 }
 
-/* Do a simple CORR 
-
-*/
-corr fishing_year cpsum cpdiff lens lend hps hpd emergency differential cph_buyer cph_seller if `pre_conditional'
-corr fishing_year cpsum cpdiff lens lend hps hpd emergency differential cph_buyer cph_seller if `post_conditional'
 /* The length and horsepower sums are very highly correlated.  */
+
+local rhs_vars elapsed ib(freq).fishing_year lens lend hps hpd i.emergency i.differential
+
+
 
 regress price `rhs_vars'  if `pre_conditional', robust
 
