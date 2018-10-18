@@ -1,3 +1,29 @@
+/****************************************************/
+/****************************************************/
+/*
+In the pre-period, there were length and horsepower trading restrictions.  
+	In the model of prices, length and hp of each party could measure bargaining power. This is derived from a 'walk-away or threat-point' reservation utility. This the utility when a trade is not done -- it comes from having someone else to trade with
+	  
+	
+	Alternatively, the number of DAS remaining (to buy or sell) will affect the price. So these can go in directly. I'd imagine that (a) the effect isn't linear and (b) if this is properly in the model, then 
+		Length and HP shouldn't explain anything anymore
+		
+	There's a real-option value. elapsed should have a negative value 
+	
+	aggregate_days_left is a reasonable alternative to put in.
+
+
+In the post period, vessels in a sector could only trade with vessels in a sector. Vessels in the CP could only trade with vessels in the CP.  It looks like the length and HP restrictions were not enforced.
+	So, for the post period, the buyer_cp_days_left and seller_cp_days_left were formed with the rule above. 
+	
+	Len and HP shouldn't matter.  
+	
+	There's probably not enough variation to put in different values for buyer and seller counterparties. Probably want to just use aggregate_days_left
+
+*/
+/****************************************************/
+/****************************************************/
+
 local date: display %td_CCYY_NN_DD date(c(current_date), "DMY")
 global today_date_string = subinstr(trim("`date'"), " " , "_", .)
 
@@ -25,11 +51,12 @@ local pre_conditional price>=5 & price<=2000   & fishing_year<=2009
 local post_conditional  price>=5 & price<=2000   & fishing_year>2009
 
 
-corr fishing_year cpsum cpdiff lens lend hps hpd emergency differential elapsed if `pre_conditional'
-corr fishing_year cpsum cpdiff lens lend hps hpd emergency differential cph_buyer cph_seller elapsed if `post_conditional'
+corr fishing_year cpsum cpdiff lens lend hps hpd emergency differential elapsed aggregate_days_left if `pre_conditional'
+corr fishing_year lens lend hps hpd emergency differential cph_seller elapsed if `post_conditional'
 
-graph matrix cpsum cpdiff lens lend hps hpd cph_buyer cph_seller elapsed if `pre_conditional', half
+graph matrix cpsum cpdiff lens lend hps hpd elapsed if `pre_conditional', half
 
+graph matrix lens lend hps hpd cph_seller elapsed aggregate_days_left if `post_conditional', half
 
 
 /**************try a few regressions ****************/

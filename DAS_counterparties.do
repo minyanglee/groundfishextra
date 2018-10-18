@@ -28,19 +28,18 @@ pause on
 global version_string 2017_11_02
 
 
-clear
 
 #delimit;
+clear;
+
 quietly do "/home/mlee/Documents/Workspace/technical folder/do file scraps/odbc_connection_macros.do";
 global oracle_cxn "conn("$mysole_conn") lower";
 local date: display %td_CCYY_NN_DD date(c(current_date), "DMY");
 global today_date_string = subinstr(trim("`date'"), " " , "_", .);
 
 
-/* extract and process the baselines */
 
-clear;
-
+/* extract and process the baselines and baseline changes through the end of 2009. */
 odbc load,  exec("select * from mults_baseline;") $oracle_cxn;  
 gen baseline=1;
 tempfile initial_base;
@@ -60,15 +59,26 @@ drop permit_number;
 replace end_date=date(c(current_date), "DMY") if end_date==. & strmatch(downgraded,"");
 replace start_date=mdy(1,1,1994) if start_date==.;
 format start_date end_date %td;
-
 drop marker downgraded baseline;
+
+
 save "$my_workdir/right_id_baselines_$today_date_string.dta", replace;
 
 
-/* construct permit-mri linkages 
+/* construct permit-mri linkages */
 
+/* The DAS and DAS2 allocations are affected by the AUTH_ID and RIGHT_ID fuck up. 
+	For a set of "cleanedup up RIGHT_IDs" the appropriate thing to do is substitue the AUTH_ID for the RIGHT_ID.
+
+
+AMS and beyond ARE NOT.  This includes SECTOR PARTICIPANTS.
+
+I think the strategy is to pull forward the "broken" right id. all the way until I need to do AMS and Sector things. 
 
 */
+/*two small programs that correct and reverse the cleanup Right IDs */
+do "$my_codedir/auth_id_fixer.do";
+
 
 clear;
 
@@ -105,6 +115,7 @@ odbc load,  exec("SELECT app_num,
 		AUTH_TYPE
 	  FROM MQRS.MORT_ELIG_CRITERIA 
 	  WHERE FISHERY = 'MULTISPECIES'
+		AND AUTH_ID NOT in (1179,1183,1187,1196,1219,1255,1261,1293,1296,1362,1374,2423,1174, 1184, 1176, 1209,1298,1358,1372,2423)
 		AND not ((TRUNC(DATE_ELIGIBLE) =  TRUNC(NVL(DATE_CANCELLED,SYSDATE+20000))) AND (CANCEL_REASON_CODE = 7 AND AUTH_TYPE = 'BASELINE'))
 		AND DATE_ELIGIBLE IS NOT NULL
 		AND (TRUNC(DATE_CANCELLED) >= '01-MAY-03' or DATE_CANCELLED IS NULL);") $oracle_cxn;  
@@ -113,6 +124,7 @@ clear;
 odbc load,  exec("SELECT app_num,
 		PER_NUM AS PERMIT,
 		AUTH_ID AS MRI,
+		RIGHT_ID as BROKEN_MRI,
 		DATE_ELIGIBLE,
 		DATE_CANCELLED,
 		LEN as LENMQ,
@@ -139,41 +151,14 @@ drop app_num
 replace auth_type="CPH" if auth_type=="HISTORY RETENTION"
 dups , drop terse
 
-save permit_mri, replace
+/* This uses the DAS-style right_ids*/
+
 save `permit_mri', replace
 
 
 /* Fix the baselines */
- use "$my_workdir/right_id_baselines_2018_10_09.dta", clear
-
- merge m:1 right_id using `new_old_mri', keep(3)
-rename right right_old
-rename auth right_id
-keep right_old right_id
-
-merge 1:m right_id using "$my_workdir/right_id_baselines_2018_10_09.dta", keep(3)
-
-keep right_old right_id hp len start end
-
-rename right_id auth_id
-rename right_old right_id 
-tempfile nob
-save `nob', replace
-
- use "$my_workdir/right_id_baselines_2018_10_09.dta", clear
- append using `nob'
- gen hasa=0
- sort right_id
-bysort right_id: egen tt=total(auth_id)
-drop if auth_id==. & tt~=0
-drop hasa tt
-notes: right_id_baselines updated ONLY fills in the hp and len for the 'broken' right_ids with the correct values
-drop auth_id 
 
 
-
-
-save "$my_workdir/right_id_baselines_updated_2018_10_09.dta", replace
 
 
 
@@ -208,12 +193,12 @@ tempfile leaseout leaseall
 /* read in das-leasing dataset */
 /* construct the lease-out subset*/
 use "$my_workdir/leases_$version_string.dta", clear
-keep permit_seller right_id_seller quantity date_of_trade fishing_year
+keep permit_seller right_id_seller quantity date_of_trade fishing_year schema
 rename date date
 rename permit permit
 rename right_id right_id
 /* collapse to the right_id-date level, retain fishing year for convenience */
-collapse (sum) quantity, by(date right_id fishing_year)
+collapse (sum) quantity, by(date right_id fishing_year schema)
 /* lease-outs are negative */
 replace quantity=-1*quantity
 /* usage marked as a negative */
@@ -226,13 +211,13 @@ save `leaseout', replace
 /* construct the lease-in subset*/
 
 use "$my_workdir/leases_$version_string.dta", clear
-keep permit_buyer right_id_buyer quantity date_of_trade fishing_year
+keep permit_buyer right_id_buyer quantity date_of_trade fishing_year schema
 rename permit permit
 rename date date
 rename right_id right_id
 /* collapse to the right_id-date level, retain fishing year for convenience */
 
-collapse (sum) quantity, by(date right_id fishing_year)
+collapse (sum) quantity, by(date right_id fishing_year schema)
 gen type="lease in"
 
 
@@ -241,7 +226,7 @@ gen type="lease in"
 append using `leaseout'
 
 /* after appending the leaseout data, collapse again to take care of permits that lease in and lease out on the same day */
-collapse (sum) quantity, by(date right_id fishing_year)
+collapse (sum) quantity, by(date right_id fishing_year schema)
 gen type= "net lease"
 rename right_id mri
 
@@ -250,7 +235,11 @@ count
 local start=r(N)
 gen id=_n
 tempfile tester
+cleanout_right_ids mri
+
 save `tester'
+
+
 joinby mri using `permit_mri', unmatched(master)
 format date %td
 
@@ -261,14 +250,13 @@ count if date>=date_eligible & (date<=date_cancelled | date_cancelled==.)
 gen mark=0
 replace mark=1 if date>=date_eligible & (date<=date_cancelled | date_cancelled==.)
 
- /*1179,1183,1187,1196,1219,1255,1261,1293,1296,1362,1374,2423,1174, 1184, 1176, 1209,1219,1298,1358,1372,2423*/
-
 bysort id: egen matched=total(mark)
 order matched, after(mark)
 count if match==0
 /* need to make sure that there is exactly one id that doesn't match */ 
 qui tab id if match==0
 assert r(N)==r(r)
+
 /* manually fix these */ 
 replace mark=1 if inlist(mri,1179,1183,1187,1196,1219,1255,1261,1293,1296,1362,1374,2423,1174, 1184, 1176, 1209,1219,1298,1358,1372,2423) & match==0
 keep if mark==1
@@ -344,8 +332,12 @@ count
 tempfile  all
 save `all'
 
+
 joinby permit using `permit_mri', unmatched(master)
 rename _merge _jbm
+
+
+
 count
 /*  
 1. Trip entries must match to 'valid' links using the date fields
@@ -412,6 +404,8 @@ format date %td
 
 
 
+cleanout_right_ids right_id
+
 
 
 append using "$my_workdir/DAS_counterparties_$today_date_string.dta"
@@ -457,6 +451,7 @@ bysort right_id (n): replace len=len[_n-1] if len==.
 collapse (sum) quantity (first) lenmq hpmq, by(right_id permit fishing_year date)
 
 keep fishing_year right_id permit  date len hp quantity
+cleanout_right_ids right_id
 
 count
 gen id=_n
@@ -466,7 +461,7 @@ gen id=_n
 
 
 /* I need to retain any das usages that do not match to a baseline. Not sure why something wouldn't have a baseline, but whatver*/
-joinby right_id using "$my_workdir/right_id_baselines_updated_2018_10_09.dta" , unmatched(master)
+joinby right_id using "$my_workdir/right_id_baselines_$today_date_string.dta" , unmatched(master)
 
 count
 keep if (date>=start_date & date<=end_date) | _merge==1
@@ -588,16 +583,176 @@ be offset by right_ids that did get an allocation */
 *bysort right_id (date): replace daysleft=daysleft[_n-1] if daysleft==.
 
 keep if fishing_year<=2016
+
+cleanout_right_ids right_id
+
+
+
+
+
+
+/* need to work on this 
+undo- the cleanout of right ids so it will merge correctly to the MQRS-derived sector data*/
+reverse_cleanout right_id
+merge m:1 right_id fishing_year using sector_year_roster_2017_10_23.dta
+drop vp_num hull_id auth_type auth_id
+
+
+/*I expect some 1's -- these are for before the sector system 
+I expect some 2's these are vessels in the roster 
+There's also some 1's that are in 2010-2016. These are weird.  These got no A days either
+*/
+drop if _merge==2
+assert quantity==0 if _merge==1 & fishing_year>=2010
+assert daysleft==0 if _merge==1 & fishing_year==2010
+/*merge and then cast the DAS back to the DAS-style to do merges with  */
+drop _merge
+
+cleanout_right_ids right_id
+
+
 save "$my_workdir/DAS_counterparties_$today_date_string.dta", replace
 
 
+/*Two issues
+1. During the post-period trades can only be sector-sector or cp-cp.
+DAS Leases post-sectors can only be within sector vessels OR within CP
+DAS TRANSFERS post-sectors can only be within A sector OR within CP. This is slightly different than the LEASE rules*/
+
+
+/* The post-sample */
+
+
+/* trading rules are a little different before and after sector implementation. 
+Easiest to split the sample */
+use "$my_workdir/DAS_counterparties_$today_date_string.dta", replace
+
+/* trading rules are a little different before and after sector implementation. 
+Easiest to split the sample */
+keep if date>=mdy(5,1,2010)
+
+replace sector=0 if sector==2
+replace sector=1 if sector>=1
+
+
+timer clear
+tempfile joiner joiner2 sellers buyers
+
+gen float df=float(round(daysleft,.01))
+
+gen float len2=float(round(len,.1))
+drop daysleft len
+
+rename df daysleft
+rename len2 len
+compress
+save `joiner', replace
+
+/* build a dataset for the sellers...how many DAS are owned by entities that this seller can sell to 
+
+A chunk of 50 right_ids takes about 240seconds to run. So about 90 minutes to run the counterparties. 23 loops.
+
+*/
 
 
 
-/* if this code runs, you can just paste it to the bottom of DAS_counterparties 
- The rangejoins take a long time to run (12 hours or so total)*/
-global working_date_string "2018_10_11"
-use "$my_workdir/DAS_counterparties_$working_date_string.dta", replace
+
+rename right_id right_id_seller
+rename hp hp_seller
+rename len len_seller
+keep right_id_seller hp_seller len date sector
+egen int myg=group(right_id)
+
+/* how many groups to loop over */
+bysort myg: gen byte nvals=_n==1
+count if nvals
+local distinct=r(N)
+drop nvals
+
+
+save `sellers'
+
+
+
+
+use `joiner', replace
+
+
+rename right_id right_id_buyer
+rename hp hp_buyer
+rename len len_buyer
+keep right_id_buyer hp_buyer len_buyer date sector
+gen len_low=len_buyer/1.1
+egen int myg=group(right_id)
+
+timer on 7
+
+
+bysort myg: gen byte nvals=_n==1
+count if nvals
+local distinct=r(N)
+drop nvals
+
+
+save `buyers'
+
+use `joiner', replace
+drop if daysleft==0 
+collapse (sum) daysleft, by(sector date)
+save `joiner2', replace
+
+
+
+use `buyers'
+merge m:1 sector_id date using `joiner2'
+assert _merge==3
+
+drop _merge
+save "$my_workdir/buyers_days_left_post$today_date_string.dta", replace
+
+
+
+use `sellers'
+merge m:1 sector_id date using `joiner2'
+assert _merge==3
+drop _merge
+
+save "$my_workdir/seller_days_left_post$today_date_string.dta", replace
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*  The rangejoins take a long time to run (12 hours or so total) on the full dataset*/
+use "$my_workdir/DAS_counterparties_$today_date_string.dta", replace
+
+/* trading rules are a little different before and after sector implementation. 
+Easiest to split the sample */
+keep if date<mdy(5,1,2010)
+
 timer clear
 tempfile joiner joiner2 sellers buyers
 
@@ -671,7 +826,6 @@ save `joiner2', replace
 
 
 
-
 local loopnum 1
 
 local chunk 19
@@ -711,7 +865,7 @@ di "loopnum is `loopnum'"
 clear
 dsconcat `files'
 timer list
-save "$my_workdir/seller_days_left_$working_date_string.dta", replace
+save "$my_workdir/seller_days_left_pre_$today_date_string.dta", replace
 
 
 /*
@@ -768,14 +922,27 @@ di "loopnum is `loopnum'"
 clear
 dsconcat `files2'
 timer list
-save "$my_workdir/buyers_days_left_$working_date_string.dta", replace
+
+save "$my_workdir/buyers_days_left_pre$today_date_string.dta", replace
+append using "$my_workdir/buyers_days_left_post$today_date_string.dta"
+keep right_id_b date daysleft
+save "$my_workdir/buyers_days_left_$today_date_string.dta"
 
 
 
 
+use "$my_workdir/seller_days_left_pre_$today_date_string.dta", replace
+append using "$my_workdir/seller_days_left_post$today_date_string.dta"
+keep right_id date daysleft
+save "$my_workdir/seller_days_left_$today_date_string.dta"
+
+! rm "$my_workdir/buyers_days_left_pre$today_date_string.dta" "$my_workdir/buyers_days_left_post$today_date_string.dta"
+! rm "$my_workdir/seller_days_left_pre_$today_date_string.dta" "$my_workdir/seller_days_left_post$today_date_string.dta"
 
 
-
-
+use "$my_workdir/DAS_counterparties_$today_date_string.dta", replace
+collapse (sum) daysleft, by(date)
+compress
+save "$my_workdir/all_DAS_left$today_date_string.dta", replace
 
 

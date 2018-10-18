@@ -10,7 +10,7 @@ pause off
 global version_string 2017_11_02
 local date: display %td_CCYY_NN_DD date(c(current_date), "DMY")
 global today_date_string = subinstr(trim("`date'"), " " , "_", .)
-
+do "$my_codedir/auth_id_fixer.do"
 est drop _all
 #delimit cr
 
@@ -175,7 +175,7 @@ rename `var'  perm_`var'
 These are  baselines
  */
  preserve
-global date_string "2018_10_09"
+global date_string "2018_10_17"
 
 use "$my_workdir/right_id_baselines_$date_string.dta", replace
 tempfile base_s base_b
@@ -259,20 +259,29 @@ drop mqrs_len_seller mqrs_hp_seller mqrs_len_buyer mqrs_hp_buyer remark1 remark2
 save $my_workdir/DAS_prices_$today_date_string.dta, replace
 
 
-
-
+/* Cast all the right ids to the "DAS-AUTH_ID version */
+cleanout_right_ids right_id_buyer right_id_seller
 
 rename date date
 drop if fishing_year==2017
-merge m:1 right_id_buyer date using "$my_workdir/buyers_days_left_2018_10_11.dta", keep(1 3)
+merge m:1 right_id_buyer date using "$my_workdir/buyers_days_left_2018_10_17.dta", keep(1 3)
 assert _merge==3
 drop _merge
 rename daysleft buyer_cp_days_left
-merge m:1 right_id_seller date using "$my_workdir/seller_days_left_2018_10_11.dta", keep(1 3)
+merge m:1 right_id_seller date using "$my_workdir/seller_days_left_2018_10_17.dta", keep(1 3)
 assert _merge==3
 drop _merge
 rename daysleft seller_cp_days_left
 
+
+merge m:1 date using  "$my_workdir/all_DAS_left2018_10_17.dta", keep(1 3)
+assert _merge==3
+drop _merge
+rename daysleft aggregate_days_left
+
+
+/* Cast all the right ids back to the AMS-version */
+reverse_cleanout right_id_buyer right_id_seller
 /*
 
  */
